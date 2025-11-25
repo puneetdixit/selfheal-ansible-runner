@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Print the custom run ID
-        run: echo "Custom Run ID: ${{ github.event.inputs.custom_run_id }}"
+        run: echo "${{ github.event.inputs.custom_run_id }}"
         
       - name: Print the message
-        run: echo "Message: ${{ github.event.inputs.message }}"
+        run: echo "${{ github.event.inputs.message }}"
