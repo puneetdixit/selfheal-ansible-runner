@@ -17,8 +17,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Set and Print Custom Run ID (Output) 🚀
-        id: set_id # Give this step an ID to reference its output
+      - name: Set and Print Custom Run ID
+        id: set_id
         run: |
           CUSTOM_ID="${{ github.event.inputs.custom_run_id }}"
           echo "CUSTOM_ID_VALUE=$CUSTOM_ID" >> "$GITHUB_OUTPUT"
