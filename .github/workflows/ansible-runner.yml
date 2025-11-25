@@ -3,10 +3,6 @@ name: Ansible Runner
 on:
   workflow_dispatch:
     inputs:
-      custom_run_id:
-        description: "Custom ID to correlate API trigger"
-        required: false
-        default: ""
       message:
         description: "Message to print"
         required: false
@@ -17,8 +13,5 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Print the custom run ID
-        run: echo "Custom Run ID: ${{ github.event.inputs.custom_run_id }}"
-
       - name: Print the message
-        run: echo "Message: ${{ github.event.inputs.message }}"
+        run: echo "${{ github.event.inputs.message }}"
