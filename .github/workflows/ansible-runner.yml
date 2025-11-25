@@ -7,6 +7,10 @@ on:
         description: "Message to print"
         required: false
         default: "Hello from GitHub Actions!"
+      custom_run_id:
+        description: "Custom ID to correlate API trigger"
+        required: false
+        default: ""
 
 jobs:
   print-job:
