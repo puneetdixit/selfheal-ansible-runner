@@ -18,4 +18,4 @@ jobs:
 
     steps:
       - name: Print the message
-        run: echo "${{ github.event.inputs.message }}"
+        run: echo "Message ${{ github.event.inputs.message }}"
