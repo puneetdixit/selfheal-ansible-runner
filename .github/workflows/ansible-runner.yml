@@ -1,0 +1,17 @@
+name: Ansible Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "Message to print"
+        required: false
+        default: "Hello from GitHub Actions!"
+
+jobs:
+  print-job:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Print the message
+        run: echo "${{ github.event.inputs.message }}"
