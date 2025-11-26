@@ -1,0 +1,41 @@
+name: Ansible Runner Dynamic Payload
+
+on:
+  workflow_dispatch:
+    inputs:
+      payload: 
+        description: "JSON string containing all dynamic variables (hosts, roles, custom_run_id, etc.)"
+        required: true
+
+jobs:
+  ansible-runner-job:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies (Ansible, ansible-runner)
+        run: pip install -r requirements.txt
+
+      - name: Parse Dynamic JSON Payload and Set Environment Variables
+        run: |
+          PAYLOAD_DATA='${{ github.event.inputs.payload }}'
+
+          CUSTOM_ID=$(echo "$PAYLOAD_DATA" | jq -r '.custom_run_id // "UNKNOWN_ID"')
+          echo "CUSTOM_RUN_ID=$CUSTOM_ID" >> $GITHUB_ENV
+          
+          FULL_PAYLOAD=$(echo "$PAYLOAD_DATA" | jq -c '.') 
+          echo "FULL_PAYLOAD=$FULL_PAYLOAD" >> $GITHUB_ENV
+          
+          echo "Parsed Custom Run ID: $CUSTOM_ID"
+          echo "Full JSON Payload available for runner_script.py"
+
+      - name: Execute Ansible Playbook via Python Runner
+        run: python runner_script.py
