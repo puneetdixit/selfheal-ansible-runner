@@ -2,26 +2,22 @@ import ansible_runner
 import os
 import json
 
-FULL_PAYLOAD_STRING = os.environ.get('FULL_PAYLOAD')
-CUSTOM_ID = os.environ.get('CUSTOM_RUN_ID', 'API-TRIGGER-DEFAULT')
-
-if not FULL_PAYLOAD_STRING:
-    print("Error: FULL_PAYLOAD environment variable not found.")
-    exit(1)
+PAYLOAD_STRING = os.environ.get('PAYLOAD')
 
 try:
-    extra_vars_payload = json.loads(FULL_PAYLOAD_STRING)
+    extra_vars_payload = json.loads(PAYLOAD_STRING)
 except json.JSONDecodeError as e:
     print(f"Error parsing JSON payload: {e}")
     exit(1)
 
-extra_vars_payload['custom_run_id'] = CUSTOM_ID 
-
 INVENTORY_FILE = 'inventory.ini'
 PLAYBOOK_FILE = 'playbook.yml' 
 
-print(f"Starting Ansible Runner for custom ID: {CUSTOM_ID}")
+custom_run_id = extra_vars_payload.pop('custom_run_id')
+print(f"Starting Ansible Runner for custom run ID: {custom_run_id}")
 print(f"Passing Extra Vars: {json.dumps(extra_vars_payload, indent=2)}")
+
+
 
 # # --- Execute Ansible Runner ---
 # r = ansible_runner.run(
