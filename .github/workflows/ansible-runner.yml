@@ -18,13 +18,18 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.14.0' 
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v4
+        with:
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+          path: ${{ env.pythonLocation }}/lib/python*/site-packages
 
       - name: Install dependencies (requirements.txt)
         run: pip install -r requirements.txt
-
-      - name: Print Installed Python Dependencies
-        run: pip freeze
 
       - name: Parse JSON Payload and Set Environment Variable
         run: |
@@ -32,6 +37,6 @@ jobs:
 
           PAYLOAD=$(echo "$PAYLOAD_DATA" | jq -c '.') 
           echo "PAYLOAD=$PAYLOAD" >> $GITHUB_ENV
-          
+
       - name: Execute Ansible Playbook via Python Runner
         run: python runner_script.py
