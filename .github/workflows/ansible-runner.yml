@@ -1,8 +1,12 @@
 name: Ansible Runner
+run-name: ${{ github.event.inputs.run_name }}
 
 on:
   workflow_dispatch:
     inputs:
+      run_name:
+        description: "Custom name for the run (e.g., Ticket ID)"
+        required: true
       payload: 
         description: "JSON string containing all dynamic variables (hosts, roles, custom_run_id, etc.)"
         required: true
