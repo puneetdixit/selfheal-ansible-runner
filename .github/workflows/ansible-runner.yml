@@ -1,4 +1,4 @@
-name: Ansible Runner Dynamic Payload
+name: Ansible Runner
 
 on:
   workflow_dispatch:
@@ -15,16 +15,18 @@ jobs:
       - name: Checkout repository code
         uses: actions/checkout@v4
 
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      - name: Install dependencies (Ansible, ansible-runner)
+      - name: Install dependencies (requirements.txt)
         run: pip install -r requirements.txt
 
-      - name: Parse Dynamic JSON Payload and Set Environment Variables
+      - name: Print Installed Python Dependencies
+        run: pip freeze
+
+      - name: Parse JSON Payload and Set Environment Variable
         run: |
           PAYLOAD_DATA='${{ github.event.inputs.payload }}'
 
