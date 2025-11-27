@@ -35,12 +35,45 @@ jobs:
       - name: Install dependencies (requirements.txt)
         run: pip install -r requirements.txt
 
-      - name: Parse JSON Payload and Set Environment Variable
+      - name: Parse JSON Payload and Set Environment Variables
+        id: parse_data
         run: |
           PAYLOAD_DATA='${{ github.event.inputs.payload }}'
 
           PAYLOAD=$(echo "$PAYLOAD_DATA" | jq -c '.') 
           echo "PAYLOAD=$PAYLOAD" >> $GITHUB_ENV
+          
+          HOST_IP=$(echo "$PAYLOAD_DATA" | jq -r '.hosts[0]')
+          echo "HOST_IP=$HOST_IP" >> $GITHUB_OUTPUT
+
+          echo "Extracted Host IP: $HOST_IP"
+
+      - name: Retrieve SSH Key and Save to .pem file 🔑
+        id: retrieve_key
+        env:
+          TARGET_IP: ${{ steps.parse_data.outputs.HOST_IP }}
+        run: |
+          IP_ADDRESS="${{ env.TARGET_IP }}"
+          
+          # Construct the secret name (e.g., 123.12.32.43 -> IP_123_12_32_43_SSH_KEY)
+          SECRET_PART=$(echo "$IP_ADDRESS" | tr '.' '_')
+          SECRET_NAME="IP_${SECRET_PART}_SSH_KEY"
+          
+          # Set the secret name as an output variable
+          echo "SECRET_KEY_NAME=$SECRET_NAME" >> "$GITHUB_OUTPUT"
+          
+          # Write the secret content to the required PEM file
+          KEY_FILE_NAME="${IP_ADDRESS}.pem"
+          
+          # Access the secret dynamically using the constructed name
+          # The key is written to the root level of the workspace
+          echo "${{ secrets[steps.retrieve_key.outputs.SECRET_KEY_NAME] }}" > "$KEY_FILE_NAME"
+
+          # Set correct permissions for the private key file
+          chmod 600 "$KEY_FILE_NAME"
+          
+          echo "SSH key retrieved and saved to $KEY_FILE_NAME"
+          echo "File is ready for use by runner_script.py"
 
       - name: Execute Ansible Playbook via Python Runner
         run: python runner_script.py

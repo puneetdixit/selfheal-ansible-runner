@@ -1,0 +1,249 @@
+---
+# Prepare the Dynamic Inventory and Get all the necessary roles
+- name: Prepare dynamic targets & install roles (latest)
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/defaults.yml          # optional: values here override the defaults below
+
+  vars:
+    # map incoming variables to safely-named local vars so we don't shadow reserved names
+    input_hosts: "{{ hosts | default([]) }}"
+    input_roles: "{{ roles | default([]) }}"
+    # renamed to avoid colliding with Ansible 'vars'
+    vars_passed: "{{ vars_passed | default({}) }}"
+
+    # sensible defaults (override in vars/defaults.yml if needed)
+    # Use a statically searched directory for roles
+    runtime_roles_path: "{{ playbook_dir + '/roles' }}"
+    
+    # Define the default collection path for installation
+    default_collection_path: "~/.ansible/collections" # Standard default install path
+    
+    # FIX: Provide a default service name for Linux hosts
+    default_linux_service: "rsyslog" 
+    
+    # FIX: Correct the Git base URL to end with a slash '/'
+    _git_base: "{{ git_base | default('https://github.com/puneetdixit/') }}" 
+    # FIX: Renamed to avoid recursion with the variable's default definition
+    _force_latest: "{{ force_latest | default(false) }}"
+
+  tasks:
+    - name: Validate inputs
+      fail:
+        msg: "You must provide at least one host and one role."
+      when: (input_hosts | length == 0) or (input_roles | length == 0)
+
+    - name: "Ensure runtime roles directory exists"
+      file:
+        path: "{{ runtime_roles_path }}"
+        state: directory
+        mode: "0755"
+
+    - name: "Install ansible.windows collection (required for restart_service role)"
+      ansible.builtin.command: 
+        cmd: "ansible-galaxy collection install ansible.windows -p {{ default_collection_path }} --ignore-certs"
+      changed_when: true
+      
+    - name: "DEBUG: Inspect vars_passed dictionary from extra-vars"
+      ansible.builtin.debug:
+        var: vars_passed
+        
+    - name: "Add hosts to dynamic group"
+      add_host:
+        name: "{{ item }}"
+        groups: dynamic_targets
+        vars:
+          service_name: "{{ vars_passed.get('service_to_restart', default_linux_service) }}" 
+          iis_service: "{{ vars_passed.get('iis_service', omit) }}"
+          site_name:  "{{ vars_passed.get('site_name', omit) }}"
+      loop: "{{ input_hosts }}"
+
+    - name: "Stat role folders (to avoid reinstall if force_latest=false)"
+      stat:
+        path: "{{ runtime_roles_path }}/{{ role_name }}"
+      register: role_stats
+      loop: "{{ input_roles }}"
+      loop_control:
+        loop_var: role_name
+        label: "{{ role_name }}"
+
+    - name: "Map stat results to dictionary keyed by role name"
+      ansible.builtin.set_fact:
+        role_stat_map: "{{ role_stat_map | default({}) | combine( { item.role_name: item.stat } ) }}"
+      loop: "{{ role_stats.results }}"
+      loop_control:
+        label: "Mapping: {{ item.role_name }}"
+
+    - name: "Install/Update role (latest) with ansible-galaxy --force"
+      ansible.builtin.command:
+        cmd: >
+          ansible-galaxy role install
+          git+{{ _git_base }}{{ role_name }}.git
+          -p {{ runtime_roles_path }}
+          --force
+      changed_when: true
+      loop: "{{ input_roles }}"
+      loop_control:
+        loop_var: role_name
+        label: "{{ role_name }}"
+      when: _force_latest | bool
+
+    - name: "Install role only if missing (when force_latest=false)"
+      ansible.builtin.command:
+        cmd: >
+          ansible-galaxy role install
+          git+{{ _git_base }}{{ role_name }}.git
+          -p {{ runtime_roles_path }}
+      changed_when: true
+      loop: "{{ input_roles }}"
+      loop_control:
+        loop_var: role_name
+        label: "{{ role_name }}"
+      when:
+        - not _force_latest | bool
+        - not (role_stat_map[role_name].exists | default(false))
+
+    - name: "Map role -> has_rollback (check for tasks/rollback.yml)"
+      set_fact:
+        roles_rollback_map: >-
+          {{
+            (roles_rollback_map | default({}))
+            | combine({
+                role_name:
+                  (lookup('ansible.builtin.fileglob',
+                          runtime_roles_path + '/' + role_name + '/tasks/rollback.yml',
+                          wantlist=True) | length) > 0
+            })
+          }}
+      loop: "{{ input_roles }}"
+      loop_control:
+        loop_var: role_name
+        label: "{{ role_name }}"
+
+    - name: "Fail early if rollback requested but role has no rollback.yml"
+      fail:
+        msg: "Rollback requested but role '{{ role_name }}' has no tasks/rollback.yml"
+      when:
+        - rollback | bool
+        - not (roles_rollback_map[role_name] | default(false))
+      loop: "{{ input_roles }}"
+      loop_control: { loop_var: role_name, label: "{{ role_name }}" }
+    
+    # FIX: Set necessary variables as facts on localhost for second play
+    - name: "Set necessary variables as facts on localhost for second play"
+      ansible.builtin.set_fact:
+        runtime_roles_path: "{{ runtime_roles_path }}"
+        input_roles: "{{ input_roles }}"
+        roles_rollback_map: "{{ roles_rollback_map }}"
+        rollback: "{{ rollback | default(false) }}"
+        collection_path: "{{ default_collection_path }}"
+        default_linux_service: "{{ default_linux_service }}" 
+        extra_vars_passed: "{{ vars_passed }}"
+        
+# Execute roles on dynamic targets (with rollback + summary)
+- name: "Execute roles on dynamic targets (with rollback + summary)"
+  hosts: dynamic_targets
+  gather_facts: true
+  
+  vars:
+    # Explicitly set the collections_paths to ensure the newly installed collection is found
+    collections_paths:
+      - "{{ hostvars['localhost'].collection_path }}"
+      
+    # Reference the variables saved as facts in the first play
+    roles:    "{{ hostvars['localhost'].input_roles }}"
+    rollback: "{{ hostvars['localhost'].rollback }}"
+    roles_rollback_map: "{{ hostvars['localhost'].roles_rollback_map }}"
+    outcomes: []
+
+    # NEW: Retrieve the default_linux_service fact from localhost
+    _default_linux_service: "{{ hostvars['localhost'].default_linux_service }}"
+    
+    # FINAL VAR FIX: Use the host's actual service_name variable, 
+    # falling back to the calculated extra var value if service_name is missing.
+    _host_service_name: >-
+      {{ 
+        hostvars[inventory_hostname].service_name 
+        | default(hostvars['localhost'].extra_vars_passed.get('service_to_restart', _default_linux_service)) 
+      }}
+      
+    _host_iis_service: "{{ hostvars[inventory_hostname].iis_service | default(omit) }}"
+    _host_site_name: "{{ hostvars[inventory_hostname].site_name | default(omit) }}"
+
+  tasks:
+    - name: "DEBUG: Show host variable service_name before running role"
+      ansible.builtin.debug:
+        msg: "Host variable 'service_name' for {{ inventory_hostname }} is set to '{{ _host_service_name }}'"
+
+    - name: "Run role main or explicit rollback; capture result"
+      include_role:
+        name: "{{ role_name }}"
+        tasks_from: "{{ 'rollback' if rollback | bool else 'main' }}"
+      vars:
+        # Pass the aliased host variable to the role's expected variable name.
+        service_name: "{{ _host_service_name }}"
+        iis_service: "{{ _host_iis_service }}"
+        site_name: "{{ _host_site_name }}"
+      register: role_result
+      loop: "{{ roles }}"
+      # loop_var: role_name is set, so the index should be role_name_index
+      loop_control: { loop_var: role_name, label: "{{ role_name }}" }
+
+    - name: "Auto-rollback roles that failed (only where rollback exists)"
+      include_role:
+        name: "{{ role_name }}"
+        tasks_from: rollback
+      vars:
+        # Pass the aliased host variable to the role's expected variable name.
+        service_name: "{{ _host_service_name }}"
+        iis_service: "{{ _host_iis_service }}"
+        site_name: "{{ _host_site_name }}"
+      loop: "{{ roles }}"
+      # loop_var: role_name is set, so the index should be role_name_index
+      loop_control: { loop_var: role_name, label: "{{ role_name }}" }
+      when:
+        - not rollback | bool
+        - (role_result.results[roles.index(role_name)] is failed) 
+        - roles_rollback_map[role_name] | default(false)
+      register: rb_result
+      ignore_errors: true
+
+    - name: "Build outcomes (ok / failed / rolled_back)"
+      set_fact:
+        outcomes: >-
+          {{
+            outcomes
+            + [ {
+                'role': role_name,
+                'requested_rollback': rollback | bool,
+                'had_rollback': roles_rollback_map[role_name] | default(false),
+                'main_failed': (role_result.results[roles.index(role_name)] is failed), 
+                'rolled_back': (
+                  (rollback | bool)
+                  or ( (role_result.results[roles.index(role_name)] is failed) 
+                       and (roles_rollback_map[role_name] | default(false)) )
+                ),
+                'status': (
+                  (rollback | bool) | ternary('rollback_executed',
+                    (role_result.results[roles.index(role_name)] is failed)
+                    | ternary(
+                        (roles_rollback_map[role_name] | default(false))
+                        | ternary('rolled_back','failed'),
+                        'ok'
+                      )
+                  )
+                )
+              } ]
+          }}
+      loop: "{{ roles }}"
+      loop_control: { loop_var: role_name, label: "{{ role_name }}" } # <--- SYNTAX FIX
+
+    - name: "Emit JSON summary (readable on stdout and via callbacks)"
+      set_stats:
+        data:
+          wrapper_summary:
+            hosts: "{{ groups['dynamic_targets'] | default([]) }}"
+            roles: "{{ roles }}"
+            rollback_requested: "{{ rollback | bool }}"
+            outcomes: "{{ outcomes }}"
