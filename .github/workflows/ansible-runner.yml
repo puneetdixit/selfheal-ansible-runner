@@ -49,12 +49,11 @@ jobs:
           SECRET_PART=$(echo "$HOST_IP" | tr '.' '_')
           SECRET_NAME="IP_${SECRET_PART}_SSH_KEY"
           echo "SECRET_NAME=$SECRET_NAME" >> "$GITHUB_OUTPUT"
-          
-          echo "Extracted Host IP: $HOST_IP"
 
       - name: Load Private Key into SSH Agent
         uses: webfactory/ssh-agent@v0.9.1
         with:
-          ssh-private-key: ${{ secrets[steps.parse_data.outputs.SECRET_NAME] }}      
+          ssh-private-key: ${{ secrets[steps.parse_data.outputs.SECRET_NAME] }}
+          
       - name: Execute Ansible Playbook via Python Runner
         run: python runner_script.py

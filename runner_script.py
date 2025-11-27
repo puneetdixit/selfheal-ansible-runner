@@ -23,8 +23,7 @@ print(f"Passing Extra Vars: {json.dumps(extra_vars_payload, indent=2)}")
 
 def create_dynamic_inventory(hosts: list, inventory_path: str):
     """
-    Creates the inventory file dynamically, defining connection details 
-    only for the first host (hosts[0]). Keys are handled by the SSH Agent.
+    Creates the inventory file dynamically. Keys are handled by the SSH Agent.
     """
     if not hosts:
         print("Error: Host list is empty. Cannot create inventory.")
@@ -37,7 +36,7 @@ def create_dynamic_inventory(hosts: list, inventory_path: str):
 [all:vars]
 ansible_connection={DEFAULT_SSH_CONNECTION}
 ansible_user={DEFAULT_SSH_USER}
-ansible_ssh_args='-o ForwardAgent=yes'
+ansible_ssh_args='-o ForwardAgent=yes -o StrictHostKeyChecking=no -l {DEFAULT_SSH_USER}'
 
 [all]
 {host_line}
@@ -54,7 +53,6 @@ ansible_ssh_args='-o ForwardAgent=yes'
 
 if not create_dynamic_inventory(hosts_list, INVENTORY_FILE):
     exit(1)
-
 
 r = ansible_runner.run(
     private_data_dir=os.getcwd(), 
