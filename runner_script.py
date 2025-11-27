@@ -71,7 +71,7 @@ r = ansible_runner.run(
     inventory=INVENTORY_FILE,
     playbook=PLAYBOOK_FILE,
     extravars=extra_vars_payload,
-    env=ssh_agent_env 
+    envvars=ssh_agent_env 
 )
 
 if r.status == 'successful':
