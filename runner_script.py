@@ -5,7 +5,8 @@ import subprocess
 
 PAYLOAD_STRING = os.environ.get('PAYLOAD')
 INVENTORY_FILE = 'inventory.ini'
-PLAYBOOK_FILE = 'playbook.yml' 
+PLAYBOOK_FILE = 'playbook.yml'
+CONFIG_PATH = 'ansible.cfg'
 DEFAULT_SSH_USER = 'ubuntu'
 DEFAULT_SSH_CONNECTION = 'ssh'
 
@@ -71,20 +72,14 @@ if not create_dynamic_inventory(hosts_list, INVENTORY_FILE):
 # print(r.stdout.read())
 # exit(1)
 
-def redact_line(line: str, secret_literals: Iterable[str]) -> str:
-    redacted = line
-    for lit in secret_literals:
-        if lit:
-            redacted = redacted.replace(lit, "***")
-    return redacted
 
 
 cmd = ["ansible-playbook", "-i", INVENTORY_FILE, PLAYBOOK_FILE, "-e", json.dumps(extra_vars_payload, separators=(",", ":"))]
 env = os.environ.copy()
-env["ANSIBLE_CONFIG"] = settings.ANSIBLE_CONFIG_PATH
+env["ANSIBLE_CONFIG"] = CONFIG_PATH
 process_output = []
 
- popen_kwargs = dict(
+popen_kwargs = dict(
     stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
     text=True,
@@ -102,7 +97,7 @@ else:
 proc = subprocess.Popen(cmd, **popen_kwargs)
 
 try:
-    stdout, _ = proc.communicate(timeout=settings.ANSIBLE_TASKS_TIMEOUT)
+    stdout, _ = proc.communicate(timeout=120)
 except subprocess.TimeoutExpired as e:
     # timed out: try graceful shutdown of the process group then force-kill
     try:
@@ -132,9 +127,8 @@ if stdout is None:
     stdout = ""
 
 for line in stdout.splitlines():
-    safe_line = redact_line(line.rstrip("\n"), secret_literals)
-    print(safe_line, flush=True)
-    process_output.append(safe_line)
+    print(line, flush=True)
+    process_output.append(line)
 
 try:
     proc.wait(timeout=1)
