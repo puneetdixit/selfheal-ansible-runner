@@ -30,18 +30,14 @@ def create_dynamic_inventory(hosts: list, inventory_path: str):
     if not hosts:
         print("Error: Host list is empty. Cannot create inventory.")
         return False
-
     
     host_ip = hosts[0]
-    ip_part = host_ip.replace(".", "_")
-    
-    key_file_name = f"IP_{ip_part}_SSH_KEY.pem"
+    key_file_name = f"{host_ip}.pem"
     
     if not os.path.exists(key_file_name):
         print(f"{key_file_name} File not present")
         exit(1)
     host_line = f"{host_ip} ansible_ssh_private_key_file={key_file_name}"
-
             
     inventory_content = f"""
 [all:vars]
@@ -76,6 +72,6 @@ if r.status == 'successful':
     print(f"Ansible run successful! Status: {r.status}")
 else:
     print(f"Ansible run failed! Status: {r.status}")
-    
+
 print(r.stdout.read())
 exit(1)
