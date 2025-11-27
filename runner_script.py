@@ -24,25 +24,20 @@ print(f"Passing Extra Vars: {json.dumps(extra_vars_payload, indent=2)}")
 def create_dynamic_inventory(hosts: list, inventory_path: str):
     """
     Creates the inventory file dynamically, defining connection details 
-    only for the first host (hosts[0]), using the GitHub Secret naming 
-    convention for the .pem file name.
+    only for the first host (hosts[0]). Keys are handled by the SSH Agent.
     """
     if not hosts:
         print("Error: Host list is empty. Cannot create inventory.")
         return False
     
     host_ip = hosts[0]
-    key_file_name = f"{host_ip}.pem"
+    host_line = f"{host_ip}" 
     
-    if not os.path.exists(key_file_name):
-        print(f"{key_file_name} File not present")
-        exit(1)
-    host_line = f"{host_ip} ansible_ssh_private_key_file={key_file_name}"
-            
     inventory_content = f"""
 [all:vars]
 ansible_connection={DEFAULT_SSH_CONNECTION}
 ansible_user={DEFAULT_SSH_USER}
+ansible_ssh_args='-o ForwardAgent=yes'
 
 [all]
 {host_line}
@@ -72,6 +67,5 @@ if r.status == 'successful':
     print(f"Ansible run successful! Status: {r.status}")
 else:
     print(f"Ansible run failed! Status: {r.status}")
-
 print(r.stdout.read())
 exit(1)
