@@ -10,6 +10,7 @@ CONFIG_PATH = 'ansible.cfg'
 DEFAULT_SSH_USER = 'ubuntu'
 DEFAULT_SSH_CONNECTION = 'ssh'
 
+
 try:
     extra_vars_payload = json.loads(PAYLOAD_STRING)
 except json.JSONDecodeError as e:
@@ -57,93 +58,120 @@ if not create_dynamic_inventory(hosts_list, INVENTORY_FILE):
     exit(1)
 
 
-# r = ansible_runner.run(
-#     private_data_dir=os.getcwd(), 
-#     inventory=INVENTORY_FILE,
-#     playbook=PLAYBOOK_FILE,
-#     extravars=extra_vars_payload,
-#     envvars=ssh_agent_env 
-# )
+# --- Replicating successful execution with ansible-runner.run() ---
 
-# if r.status == 'successful':
-#     print(f"Ansible run successful! Status: {r.status}")
-# else:
-#     print(f"Ansible run failed! Status: {r.status}")
-# print(r.stdout.read())
-# exit(1)
+# 1. Capture the entire current environment (which includes SSH_AUTH_SOCK)
+#    and explicitly add the ANSIBLE_CONFIG path.
+runner_env = os.environ.copy()
+runner_env["ANSIBLE_CONFIG"] = CONFIG_PATH
 
-
-
-cmd = ["ansible-playbook", "-i", INVENTORY_FILE, PLAYBOOK_FILE, "-e", json.dumps(extra_vars_payload, separators=(",", ":"))]
-env = os.environ.copy()
-env["ANSIBLE_CONFIG"] = CONFIG_PATH
-process_output = []
-
-popen_kwargs = dict(
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True,
-    bufsize=1,
-    env=env,
+# 2. Execute Ansible Runner
+r = ansible_runner.run(
+    private_data_dir=os.getcwd(), 
+    inventory=INVENTORY_FILE,
+    playbook=PLAYBOOK_FILE,
+    extravars=extra_vars_payload,
+    envvars=runner_env 
 )
 
-if os.name == "posix":
-    # start a new session so we can kill the whole group on timeout
-    popen_kwargs["preexec_fn"] = os.setsid
-else:
-    # on Windows create a new process group
-    popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
 
-proc = subprocess.Popen(cmd, **popen_kwargs)
+# --- Process Output and Status (Equivalent to your final print block) ---
+process_output = []
 
-try:
-    stdout, _ = proc.communicate(timeout=120)
-except subprocess.TimeoutExpired as e:
-    # timed out: try graceful shutdown of the process group then force-kill
-    try:
-        if os.name == "posix":
-            # send SIGTERM to the process group
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        else:
-            proc.terminate()
-    except Exception:
-        pass
-
-    # give a short grace period for cleanup
-    try:
-        stdout, _ = proc.communicate(timeout=5)
-    except Exception:
-        stdout = getattr(e, "stdout", None) or ""
-        # force kill if still alive
-        try:
-            if os.name == "posix":
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            else:
-                proc.kill()
-        except Exception:
-            pass
-
-if stdout is None:
-    stdout = ""
-
-for line in stdout.splitlines():
+# Stream the output for logging
+for line in r.stdout.splitlines():
     print(line, flush=True)
     process_output.append(line)
+for line in r.stderr.splitlines():
+    print(line, flush=True)
 
-try:
-    proc.wait(timeout=1)
-except Exception:
-    # still alive: try to force kill
-    try:
-        if os.name == "posix":
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        else:
-            proc.kill()
-    except Exception:
-        pass
-    proc.wait()
+status = r.status
+rc = r.rc
 
-rc = proc.returncode
-status = "success" if rc == 0 else "failed"
+print(f"\n--- Ansible Runner Summary ---")
+print(f"Status: {status}")
+print(f"Return Code: {rc}")
 
-print(f"Status : {status}, output : {process_output}")
+if status == 'successful':
+    exit(0)
+else:
+    # Print full stdout for debugging failure
+    print(f"\n--- Full Runner Event Output (STDOUT) ---")
+    print(r.stdout.read())
+    exit(1)
+
+
+
+# cmd = ["ansible-playbook", "-i", INVENTORY_FILE, PLAYBOOK_FILE, "-e", json.dumps(extra_vars_payload, separators=(",", ":"))]
+# env = os.environ.copy()
+# env["ANSIBLE_CONFIG"] = CONFIG_PATH
+# process_output = []
+
+# popen_kwargs = dict(
+#     stdout=subprocess.PIPE,
+#     stderr=subprocess.STDOUT,
+#     text=True,
+#     bufsize=1,
+#     env=env,
+# )
+
+# if os.name == "posix":
+#     # start a new session so we can kill the whole group on timeout
+#     popen_kwargs["preexec_fn"] = os.setsid
+# else:
+#     # on Windows create a new process group
+#     popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+
+# proc = subprocess.Popen(cmd, **popen_kwargs)
+
+# try:
+#     stdout, _ = proc.communicate(timeout=120)
+# except subprocess.TimeoutExpired as e:
+#     # timed out: try graceful shutdown of the process group then force-kill
+#     try:
+#         if os.name == "posix":
+#             # send SIGTERM to the process group
+#             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+#         else:
+#             proc.terminate()
+#     except Exception:
+#         pass
+
+#     # give a short grace period for cleanup
+#     try:
+#         stdout, _ = proc.communicate(timeout=5)
+#     except Exception:
+#         stdout = getattr(e, "stdout", None) or ""
+#         # force kill if still alive
+#         try:
+#             if os.name == "posix":
+#                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+#             else:
+#                 proc.kill()
+#         except Exception:
+#             pass
+
+# if stdout is None:
+#     stdout = ""
+
+# for line in stdout.splitlines():
+#     print(line, flush=True)
+#     process_output.append(line)
+
+# try:
+#     proc.wait(timeout=1)
+# except Exception:
+#     # still alive: try to force kill
+#     try:
+#         if os.name == "posix":
+#             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+#         else:
+#             proc.kill()
+#     except Exception:
+#         pass
+#     proc.wait()
+
+# rc = proc.returncode
+# status = "success" if rc == 0 else "failed"
+
+# print(f"Status : {status}, output : {process_output}")
