@@ -55,12 +55,12 @@ jobs:
         with:
           ssh-private-key: ${{ secrets[steps.parse_data.outputs.SECRET_NAME] }}
       
-      - name: Start Tmate Session for Interactive Debugging
-        uses: mxschmitt/action-tmate@v3
-        if: ${{ always() }}
-        timeout-minutes: 15
-        with:
-          limit-access-to-actor: true
+      # - name: Start Tmate Session for Interactive Debugging
+      #   uses: mxschmitt/action-tmate@v3
+      #   if: ${{ always() }}
+      #   timeout-minutes: 15
+      #   with:
+      #     limit-access-to-actor: true
           
       - name: Execute Ansible Playbook via Python Runner
         run: python runner_script.py

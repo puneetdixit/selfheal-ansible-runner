@@ -54,11 +54,24 @@ ansible_ssh_args='-o ForwardAgent=yes -o StrictHostKeyChecking=no -l {DEFAULT_SS
 if not create_dynamic_inventory(hosts_list, INVENTORY_FILE):
     exit(1)
 
+
+# When the webfactory/ssh-agent action runs, it sets the SSH_AUTH_SOCK variable.
+# We must pass this variable explicitly to the ansible_runner environment.
+ssh_agent_env = {
+    'SSH_AUTH_SOCK': os.environ.get('SSH_AUTH_SOCK')
+}
+
+# Ensure the SSH_AUTH_SOCK variable exists before proceeding
+if not ssh_agent_env['SSH_AUTH_SOCK']:
+    print("FATAL: SSH_AUTH_SOCK environment variable not found. SSH Agent likely failed to start.")
+    exit(1)
+
 r = ansible_runner.run(
     private_data_dir=os.getcwd(), 
     inventory=INVENTORY_FILE,
     playbook=PLAYBOOK_FILE,
     extravars=extra_vars_payload,
+    env=ssh_agent_env 
 )
 
 if r.status == 'successful':
