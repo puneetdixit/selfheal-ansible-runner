@@ -111,12 +111,7 @@ popen_kwargs = dict(
     env=env,
 )
 
-if os.name == "posix":
-    # start a new session so we can kill the whole group on timeout
-    popen_kwargs["preexec_fn"] = os.setsid
-else:
-    # on Windows create a new process group
-    popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+popen_kwargs["preexec_fn"] = os.setsid
 
 proc = subprocess.Popen(cmd, **popen_kwargs)
 
@@ -126,14 +121,12 @@ except subprocess.TimeoutExpired as e:
     # timed out: try graceful shutdown of the process group then force-kill
     try:
         if os.name == "posix":
-            # send SIGTERM to the process group
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
         else:
             proc.terminate()
     except Exception:
         pass
 
-    # give a short grace period for cleanup
     try:
         stdout, _ = proc.communicate(timeout=5)
     except Exception:
