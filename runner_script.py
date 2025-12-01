@@ -2,6 +2,9 @@ import ansible_runner
 import os
 import json
 import subprocess
+import requests
+import signal
+import sys
 
 PAYLOAD_STRING = os.environ.get('PAYLOAD')
 INVENTORY_FILE = 'inventory.ini'
@@ -164,3 +167,32 @@ rc = proc.returncode
 status = "success" if rc == 0 else "failed"
 
 print(f"Status : {status}, output : {process_output}")
+
+# --- Send status and logs to the configured API ---
+api_url = "http://3.231.210.224:8000/github-actions/results"
+payload = {
+    "custom_run_id": custom_run_id,
+    "status": status,
+    "rc": rc,
+    "logs_text": "\n".join(process_output),
+}
+
+headers = {
+    "Content-Type": "application/json",
+}
+
+try:
+    resp = requests.post(api_url, json=payload, headers=headers, timeout=10)
+    print(f"Posted results to {api_url} - status_code: {resp.status_code}")
+    try:
+        print("Response:", resp.text)
+    except Exception:
+        pass
+except requests.RequestException as e:
+    print(f"Failed to POST results to {api_url}: {e}")
+
+# Exit with the same code as the ansible-playbook process
+if rc == 0:
+    sys.exit(0)
+else:
+    sys.exit(1)
