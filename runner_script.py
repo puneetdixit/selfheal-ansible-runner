@@ -174,7 +174,7 @@ payload = {
     "custom_run_id": custom_run_id,
     "status": status,
     "rc": rc,
-    "logs_text": "\n".join(process_output),
+    "logs": process_output,
 }
 
 headers = {
