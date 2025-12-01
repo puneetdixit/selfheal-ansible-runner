@@ -166,8 +166,6 @@ except Exception:
 rc = proc.returncode
 status = "success" if rc == 0 else "failed"
 
-print(f"Status : {status}, output : {process_output}")
-
 # --- Send status and logs to the configured API ---
 api_url = "http://3.231.210.224:8000/github-actions/results"
 payload = {
@@ -191,7 +189,6 @@ try:
 except requests.RequestException as e:
     print(f"Failed to POST results to {api_url}: {e}")
 
-# Exit with the same code as the ansible-playbook process
 if rc == 0:
     sys.exit(0)
 else:
