@@ -8,16 +8,24 @@ permissions:
 
 jobs:
   restart-webapp:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify installed tools
+      - name: Install Azure CLI
+        uses: azure/CLI@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az version
+
+      - name: Install Ansible
         run: |
-          az version
-          ansible --version
+          python3 -m pip install --user ansible
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/ansible-playbook" --version
 
       - name: Login to Azure
         uses: azure/login@v2
