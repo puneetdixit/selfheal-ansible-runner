@@ -1,4 +1,4 @@
-name: Restart Azure Web App
+name: Debug Azure Authentication
 
 on:
   workflow_dispatch:
@@ -7,46 +7,85 @@ permissions:
   contents: read
 
 jobs:
-  restart-webapp:
+  debug-azure:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      # Step 1: Check runner environment
+      - name: Step 1 - Check runner
+        run: |
+          echo "Runner OS:"
+          cat /etc/os-release
+          echo "Azure CLI:"
+          az version
+          echo "Python:"
+          python3 --version
 
-      - name: Install Azure CLI
-        uses: azure/CLI@v2
-        with:
-          azcliversion: latest
-          inlineScript: |
-            az version
+      # Step 2: Check that the secret exists without displaying it
+      - name: Step 2 - Check credentials secret
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          if [ -z "$AZURE_CREDENTIALS" ]; then
+            echo "ERROR: AZURE_CREDENTIALS is missing or empty"
+            exit 1
+          fi
 
-      # - name: Install Ansible
-      #   run: |
-      #     python3 -m pip install --user ansible
-      #     echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      #     "$HOME/.local/bin/ansible-playbook" --version
+          echo "AZURE_CREDENTIALS is present"
 
-      - name: Login to Azure
+          python3 - <<'PY'
+          import json, os, sys
+
+          try:
+              credentials = json.loads(os.environ["AZURE_CREDENTIALS"])
+          except json.JSONDecodeError:
+              print("ERROR: AZURE_CREDENTIALS is not valid JSON")
+              sys.exit(1)
+
+          required = [
+              "clientId",
+              "clientSecret",
+              "tenantId",
+              "subscriptionId",
+          ]
+
+          missing = [
+              key for key in required
+              if not isinstance(credentials.get(key), str)
+              or not credentials[key].strip()
+          ]
+
+          if missing:
+              print("ERROR: Missing or empty fields:", ", ".join(missing))
+              sys.exit(1)
+
+          print("Credential JSON structure is valid")
+          print("All four required fields are present")
+          PY
+
+      # Step 3: Authenticate using the service principal
+      - name: Step 3 - Azure login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Verify Azure access
+      # Step 4: Verify authenticated identity
+      - name: Step 4 - Verify identity
         run: |
-          az account show --output table
+          az account show \
+            --query "{subscription:name, tenantId:tenantId, userType:user.type, userName:user.name}" \
+            --output json
+
+      # Step 5: Check access to the Web App
+      - name: Step 5 - Check Web App access
+        run: |
           az webapp show \
             --resource-group testing-webapp-resource-group \
             --name zurich-testing \
             --query state \
             --output tsv
 
-      - name: Run Ansible playbook
-        run: |
-          ansible-playbook \
-            -i localhost, \
-            restart-webapp.yml
-
-      - name: Logout from Azure
+      # Step 6: Logout
+      - name: Step 6 - Logout
         if: always()
         run: az logout
