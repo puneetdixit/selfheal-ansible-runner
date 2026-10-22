@@ -1,41 +1,101 @@
-name: Restart Azure Web App
+
+name: Test Azure OIDC
 
 on:
   workflow_dispatch:
 
 permissions:
+  id-token: write
   contents: read
 
 jobs:
-  restart-webapp:
+  test-azure-oidc:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Login to Azure
+      - name: Verify required GitHub secrets
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+
+          for name in \
+            AZURE_CLIENT_ID \
+            AZURE_TENANT_ID \
+            AZURE_SUBSCRIPTION_ID
+          do
+            if [ -z "${!name}" ]; then
+              echo "::error::GitHub secret $name is missing or empty"
+              exit 1
+            fi
+          done
+
+          echo "Required Azure secrets are present."
+
+      - name: Login to Azure using OIDC
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Install Ansible
+      - name: Verify Azure identity
         run: |
-          python3 -m pip install --user ansible
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          set -euo pipefail
 
-      - name: Restart Web App using Ansible
+          az account show \
+            --query "{subscription:name, subscriptionId:id, tenantId:tenantId, userType:user.type}" \
+            --output json
+
+      - name: Verify Web App access
+        env:
+          RESOURCE_GROUP: testing-webapp-resource-group
+          WEBAPP_NAME: zurich-testing
         run: |
-          ansible-playbook \
-            -i localhost, \
-            restart-webapp.yml
+          set -euo pipefail
+
+          az webapp show \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WEBAPP_NAME" \
+            --query "{name:name, state:state, location:location}" \
+            --output json
+
+      - name: Restart test Web App
+        env:
+          RESOURCE_GROUP: testing-webapp-resource-group
+          WEBAPP_NAME: zurich-testing
+        run: |
+          set -euo pipefail
+
+          az webapp restart \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WEBAPP_NAME"
+
+          echo "Web App restart command completed."
 
       - name: Verify Web App health
+        env:
+          WEBAPP_URL: https://zurich-testing-bhhhgmh5fzecfcem.westus3-01.azurewebsites.net/
         run: |
-          curl --fail --silent --show-error \
-            --retry 6 --retry-delay 5 --retry-connrefused \
-            https://zurich-testing-bhhhgmh5fzecfcem.westus3-01.azurewebsites.net/
+          set -euo pipefail
 
-      - name: Logout
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 6 \
+            --retry-delay 5 \
+            --retry-connrefused \
+            --max-time 20 \
+            "$WEBAPP_URL"
+
+          echo "Web App health check passed."
+
+      - name: Logout from Azure
         if: always()
         run: az logout
