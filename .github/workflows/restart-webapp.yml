@@ -1,0 +1,44 @@
+name: Restart Azure Web App
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restart-webapp:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify installed tools
+        run: |
+          az version
+          ansible --version
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+
+      - name: Verify Azure access
+        run: |
+          az account show --output table
+          az webapp show \
+            --resource-group testing-webapp-resource-group \
+            --name zurich-testing \
+            --query state \
+            --output tsv
+
+      - name: Run Ansible playbook
+        run: |
+          ansible-playbook \
+            -i localhost, \
+            restart-webapp.yml
+
+      - name: Logout from Azure
+        if: always()
+        run: az logout
