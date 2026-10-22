@@ -1,4 +1,4 @@
-name: Debug Azure Authentication
+name: Restart Azure Web App
 
 on:
   workflow_dispatch:
@@ -7,85 +7,35 @@ permissions:
   contents: read
 
 jobs:
-  debug-azure:
+  restart-webapp:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Check runner environment
-      - name: Step 1 - Check runner
-        run: |
-          echo "Runner OS:"
-          cat /etc/os-release
-          echo "Azure CLI:"
-          az version
-          echo "Python:"
-          python3 --version
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # Step 2: Check that the secret exists without displaying it
-      - name: Step 2 - Check credentials secret
-        env:
-          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
-        run: |
-          if [ -z "$AZURE_CREDENTIALS" ]; then
-            echo "ERROR: AZURE_CREDENTIALS is missing or empty"
-            exit 1
-          fi
-
-          echo "AZURE_CREDENTIALS is present"
-
-          python3 - <<'PY'
-          import json, os, sys
-
-          try:
-              credentials = json.loads(os.environ["AZURE_CREDENTIALS"])
-          except json.JSONDecodeError:
-              print("ERROR: AZURE_CREDENTIALS is not valid JSON")
-              sys.exit(1)
-
-          required = [
-              "clientId",
-              "clientSecret",
-              "tenantId",
-              "subscriptionId",
-          ]
-
-          missing = [
-              key for key in required
-              if not isinstance(credentials.get(key), str)
-              or not credentials[key].strip()
-          ]
-
-          if missing:
-              print("ERROR: Missing or empty fields:", ", ".join(missing))
-              sys.exit(1)
-
-          print("Credential JSON structure is valid")
-          print("All four required fields are present")
-          PY
-
-      # Step 3: Authenticate using the service principal
-      - name: Step 3 - Azure login
+      - name: Login to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Step 4: Verify authenticated identity
-      - name: Step 4 - Verify identity
+      - name: Install Ansible
         run: |
-          az account show \
-            --query "{subscription:name, tenantId:tenantId, userType:user.type, userName:user.name}" \
-            --output json
+          python3 -m pip install --user ansible
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      # Step 5: Check access to the Web App
-      - name: Step 5 - Check Web App access
+      - name: Restart Web App using Ansible
         run: |
-          az webapp show \
-            --resource-group testing-webapp-resource-group \
-            --name zurich-testing \
-            --query state \
-            --output tsv
+          ansible-playbook \
+            -i localhost, \
+            restart-webapp.yml
 
-      # Step 6: Logout
-      - name: Step 6 - Logout
+      - name: Verify Web App health
+        run: |
+          curl --fail --silent --show-error \
+            --retry 6 --retry-delay 5 --retry-connrefused \
+            https://zurich-testing-bhhhgmh5fzecfcem.westus3-01.azurewebsites.net/
+
+      - name: Logout
         if: always()
         run: az logout
