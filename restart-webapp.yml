@@ -1,17 +1,33 @@
+
 ---
-- name: Restart Azure Web App
+- name: Restart Azure Web App and Check CPU Metrics
   hosts: localhost
   connection: local
   gather_facts: false
 
+  vars:
+    resource_group: testing-webapp-resource-group
+    webapp_name: zurich-testing
+    webapp_url: https://zurich-testing-bhhhgmh5fzecfcem.westus3-01.azurewebsites.net/
+
   tasks:
+    - name: Get Web App resource ID
+      ansible.builtin.command:
+        cmd: >
+          az webapp show
+          --resource-group {{ resource_group }}
+          --name {{ webapp_name }}
+          --query id
+          --output tsv
+      register: webapp_resource_id
+      changed_when: false
 
     - name: Get Web App state before restart
       ansible.builtin.command:
         cmd: >
           az webapp show
-          --resource-group testing-webapp-resource-group
-          --name zurich-testing
+          --resource-group {{ resource_group }}
+          --name {{ webapp_name }}
           --query state
           --output tsv
       register: state_before
@@ -21,49 +37,98 @@
       ansible.builtin.debug:
         msg: "Web App state before restart: {{ state_before.stdout | trim }}"
 
+    - name: Get CPU Time metrics before restart
+      ansible.builtin.command:
+        cmd: >
+          az monitor metrics list
+          --resource {{ webapp_resource_id.stdout | trim }}
+          --metric CpuTime
+          --aggregation Total
+          --interval PT1M
+          --start-time {{ lookup('pipe', 'date -u -d "5 minutes ago" +%Y-%m-%dT%H:%M:%SZ') }}
+          --end-time {{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}
+          --output json
+      register: cpu_before_raw
+      changed_when: false
+      failed_when: false
+
+    - name: Display CPU Time before restart
+      ansible.builtin.debug:
+        msg: "{{ cpu_before_raw.stdout | default('No metric data available') }}"
+
     - name: Restart Azure Web App
       ansible.builtin.command:
         cmd: >
           az webapp restart
-          --resource-group testing-webapp-resource-group
-          --name zurich-testing
+          --resource-group {{ resource_group }}
+          --name {{ webapp_name }}
       register: restart_result
-      changed_when: true
+      changed_when: restart_result.rc == 0
 
-    - name: Wait for Web App to come back
-      ansible.builtin.pause:
-        seconds: 10
+    - name: Display restart result
+      ansible.builtin.debug:
+        msg: "Azure restart command completed successfully."
 
-    - name: Get Web App state after restart
+    - name: Wait for Web App to return to Running
       ansible.builtin.command:
         cmd: >
           az webapp show
-          --resource-group testing-webapp-resource-group
-          --name zurich-testing
+          --resource-group {{ resource_group }}
+          --name {{ webapp_name }}
           --query state
           --output tsv
       register: state_after
       changed_when: false
-      retries: 6
-      delay: 5
+      retries: 12
+      delay: 10
       until: state_after.stdout | trim == "Running"
+
+    - name: Display state after restart
+      ansible.builtin.debug:
+        msg: "Web App state after restart: {{ state_after.stdout | trim }}"
 
     - name: Verify Web App HTTP endpoint
       ansible.builtin.uri:
-        url: "https://zurich-testing-bhhhgmh5fzecfcem.westus3-01.azurewebsites.net/"
+        url: "{{ webapp_url }}"
         method: GET
         status_code: 200
         timeout: 10
       register: http_check
-      retries: 6
-      delay: 5
+      retries: 12
+      delay: 10
       until: http_check.status == 200
 
-    - name: Restart verification
+    - name: Wait before collecting post-restart CPU metrics
+      ansible.builtin.pause:
+        seconds: 60
+        prompt: "Waiting 1 minute after restart before querying CPU metrics"
+
+    - name: Get CPU Time metrics for the previous 1 minute
+      ansible.builtin.command:
+        cmd: >
+          az monitor metrics list
+          --resource {{ webapp_resource_id.stdout | trim }}
+          --metric CpuTime
+          --aggregation Total
+          --interval PT1M
+          --start-time {{ lookup('pipe', 'date -u -d "1 minute ago" +%Y-%m-%dT%H:%M:%SZ') }}
+          --end-time {{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}
+          --output json
+      register: cpu_after_raw
+      changed_when: false
+      failed_when: false
+
+    - name: Display CPU Time after restart
+      ansible.builtin.debug:
+        msg: "{{ cpu_after_raw.stdout | default('No metric data available') }}"
+
+    - name: Restart verification summary
       ansible.builtin.debug:
         msg:
-          - "Restart command executed: YES"
+          - "Restart command executed: {{ 'YES' if restart_result.rc == 0 else 'NO' }}"
           - "Web App state before: {{ state_before.stdout | trim }}"
           - "Web App state after: {{ state_after.stdout | trim }}"
           - "HTTP status: {{ http_check.status }}"
+          - "CPU Time before restart: {{ 'Metric query succeeded' if cpu_before_raw.rc == 0 else 'Unavailable or query failed' }}"
+          - "CPU Time after restart: {{ 'Metric query succeeded' if cpu_after_raw.rc == 0 else 'Unavailable or query failed' }}"
           - "Restart verification: SUCCESS"
